@@ -41,8 +41,6 @@ ATTACH 'ducklake:postgres:' AS lake (
     METADATA_PARAMETERS MAP {'secret': 'pg_secret'}
 );
 
-CREATE SCHEMA IF NOT EXISTS lake.ducklake_prod_ingestion;
-
 -- ============================================================================
 -- Pattern A: FULL REFRESH (illustrative -- not executed by default)
 -- Use this instead of Pattern B below when the table is small/cheap to rebuild
@@ -58,19 +56,22 @@ CREATE SCHEMA IF NOT EXISTS lake.ducklake_prod_ingestion;
 -- primary key -- verify both before first run (see setup notes).
 -- ============================================================================
 
+-- Create the target schema if it doesn't exist (required before creating tables in it).
+CREATE SCHEMA IF NOT EXISTS lake.ducklake_prod_ingestion;
+
 -- Bootstrap the target table on first run only; no-op once it exists.
 CREATE TABLE IF NOT EXISTS lake.ducklake_prod_ingestion.events_rich_source AS
     SELECT src.*
     FROM pg_src.ducklake_prod_ingestion.events_rich_source AS src
     WHERE 1 = 0;
 
--- Pull only rows changed since the target's current high-water mark.
+-- Pull only rows changed since the target's current high-water mark (max updated_at, or epoch if empty).
 CREATE OR REPLACE TEMP TABLE events_rich_source_batch AS
     SELECT src.*
     FROM pg_src.ducklake_prod_ingestion.events_rich_source AS src
     WHERE src.updated_at > (
-        SELECT COALESCE(MAX(tgt.updated_at), TIMESTAMP '1970-01-01')
-        FROM lake.ducklake_prod_ingestion.events_rich_source AS tgt
+        SELECT COALESCE(MAX(updated_at), TIMESTAMP '1970-01-01')
+        FROM lake.ducklake_prod_ingestion.events_rich_source
     );
 
 -- Drop any existing versions of those rows, then insert the fresh versions
