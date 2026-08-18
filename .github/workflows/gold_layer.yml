@@ -1,0 +1,67 @@
+name: DuckLake Gold Layer - Events ML
+
+on:
+  schedule:
+    # 06:30 UTC daily (30 min after the Postgres sync at 06:00 UTC).
+    # Adjust to your timezone — GitHub Actions cron is always UTC.
+    - cron: "30 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  gold_layer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install DuckDB CLI
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+
+      - name: Verify DuckDB installation
+        run: duckdb --version
+
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Parse Postgres connection string
+        env:
+          PG_CONN_STRING: ${{ secrets.PG_CONN_STRING }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          from urllib.parse import urlsplit, unquote
+
+          conn = os.environ["PG_CONN_STRING"]
+          u = urlsplit(conn)
+          if u.scheme not in ("postgres", "postgresql"):
+              raise SystemExit(f"PG_CONN_STRING must start with postgres:// or postgresql://, got scheme {u.scheme!r}")
+
+          fields = {
+              "PGHOST": u.hostname or "",
+              "PGPORT": str(u.port or 5432),
+              "PGDATABASE": (u.path or "/postgres").lstrip("/") or "postgres",
+              "PGUSER": unquote(u.username) if u.username else "",
+              "PGPASSWORD": unquote(u.password) if u.password else "",
+          }
+          for key in ("PGUSER", "PGPASSWORD", "PGHOST"):
+              if fields[key]:
+                  print(f"::add-mask::{fields[key]}")
+
+          github_env = os.environ["GITHUB_ENV"]
+          with open(github_env, "a") as f:
+              for key, value in fields.items():
+                  f.write(f"{key}={value}\n")
+          PYEOF
+
+      - name: Build gold layer
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DUCKLAKE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DUCKLAKE_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          duckdb <<'SQL_EOF'
+          INSTALL postgres; LOAD postgres;
+          INSTALL ducklake; LOAD ducklake;
+          INSTALL httpfs; LOAD httpfs;
+          INSTALL json; LOAD json;
+          .read scripts/gold_layer.sql
+          SQL_EOF
