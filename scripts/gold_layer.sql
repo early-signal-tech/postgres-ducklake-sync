@@ -62,11 +62,6 @@ SELECT
     TRY_CAST(json_extract_string(src.user_attributes, '$.tier') AS VARCHAR) AS user_attributes_tier,
     TRY_CAST(json_extract_string(src.user_attributes, '$.signup_days_ago') AS INT) AS user_attributes_signup_days_ago,
     TRY_CAST(json_extract_string(src.user_attributes, '$.country') AS VARCHAR) AS user_attributes_country,
-    TRY_CAST(json_extract_string(src.user_attributes, '$.mrr_value') AS DECIMAL(10,2)) AS user_attributes_mrr_value,
-
-    -- Flatten ml_labels (JSON)
-    TRY_CAST(json_extract_string(src.ml_labels, '$.is_converted') AS BOOLEAN) AS ml_labels_is_converted,
-    TRY_CAST(json_extract_string(src.ml_labels, '$.churned_7d') AS BOOLEAN) AS ml_labels_churned_7d,
-    TRY_CAST(json_extract_string(src.ml_labels, '$.revenue_7d') AS DECIMAL(10,2)) AS ml_labels_revenue_7d
+    TRY_CAST(json_extract_string(src.user_attributes, '$.mrr_value') AS DECIMAL(10,2)) AS user_attributes_mrr_value
 
 FROM pg_src.ducklake_prod_ingestion.events_rich_source AS src;
