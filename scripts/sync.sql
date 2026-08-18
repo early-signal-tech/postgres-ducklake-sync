@@ -37,7 +37,7 @@ ATTACH '' AS pg_src (TYPE POSTGRES, SECRET pg_secret, READ_ONLY);
 -- tables isolated from the ducklake_prod_ingestion application schema.
 ATTACH 'ducklake:postgres:' AS lake (
     DATA_PATH 's3://ducklake-prod-tutorial/',
-    METADATA_SCHEMA 'ducklake_catalog',
+    METADATA_SCHEMA 'ducklake_meta',
     METADATA_PARAMETERS MAP {'secret': 'pg_secret'}
 );
 
