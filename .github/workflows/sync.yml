@@ -1,0 +1,75 @@
+name: Postgres to DuckLake Sync
+
+on:
+  schedule:
+    # 06:00 UTC daily. Adjust to your timezone — GitHub Actions cron is always UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install DuckDB CLI
+        run: |
+          curl -fsSL https://install.duckdb.org | sh
+          echo "$HOME/.duckdb/cli/latest" >> "$GITHUB_PATH"
+
+      - name: Verify DuckDB installation
+        run: duckdb --version
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # DuckDB's CREATE SECRET (TYPE POSTGRES) takes discrete HOST/PORT/USER/PASSWORD/
+      # DATABASE fields, not a single DSN — so the connection string is decomposed here,
+      # once, rather than parsed in SQL. Values are masked and exported to GITHUB_ENV so
+      # scripts/sync.sql can pick them up via getenv(); the raw connection string is
+      # never written to disk or echoed.
+      - name: Parse Postgres connection string
+        env:
+          PG_CONN_STRING: ${{ secrets.PG_CONN_STRING }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          from urllib.parse import urlsplit, unquote
+
+          conn = os.environ["PG_CONN_STRING"]
+          u = urlsplit(conn)
+          if u.scheme not in ("postgres", "postgresql"):
+              raise SystemExit(f"PG_CONN_STRING must start with postgres:// or postgresql://, got scheme {u.scheme!r}")
+
+          fields = {
+              "PGHOST": u.hostname or "",
+              "PGPORT": str(u.port or 5432),
+              "PGDATABASE": (u.path or "/postgres").lstrip("/") or "postgres",
+              "PGUSER": unquote(u.username) if u.username else "",
+              "PGPASSWORD": unquote(u.password) if u.password else "",
+          }
+          for key in ("PGUSER", "PGPASSWORD", "PGHOST"):
+              if fields[key]:
+                  print(f"::add-mask::{fields[key]}")
+
+          github_env = os.environ["GITHUB_ENV"]
+          with open(github_env, "a") as f:
+              for key, value in fields.items():
+                  f.write(f"{key}={value}\n")
+          PYEOF
+
+      - name: Run sync
+        env:
+          # PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD come from the previous step via
+          # GITHUB_ENV. Consumed inside scripts/sync.sql via getenv() — DuckDB's ATTACH
+          # requires a string literal and won't accept getenv() or concatenation there,
+          # so credentials go into a CREATE SECRET (which does accept getenv()) and both
+          # ATTACH statements reference that secret by name instead.
+          AWS_ACCESS_KEY_ID: ${{ secrets.DUCKLAKE_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DUCKLAKE_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          duckdb <<'SQL_EOF'
+          INSTALL postgres; LOAD postgres;
+          INSTALL ducklake; LOAD ducklake;
+          INSTALL httpfs; LOAD httpfs;
+          .read scripts/sync.sql
+          SQL_EOF
