@@ -20,7 +20,7 @@ jobs:
         run: duckdb --version
 
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # DuckDB's CREATE SECRET (TYPE POSTGRES) takes discrete HOST/PORT/USER/PASSWORD/
       # DATABASE fields, not a single DSN — so the connection string is decomposed here,
