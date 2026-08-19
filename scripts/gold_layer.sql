@@ -1,6 +1,11 @@
 -- Gold layer transformation: flatten events_rich_source JSON columns into a denormalized ML-ready schema.
--- Reads from the bronze layer (events_rich_source), transforms, and writes to gold.events_rich_ml_gold
--- as a full refresh (idempotent, always represents the current state).
+-- Reads from my_ducklake.ducklake_prod_ingestion.events_rich_source and writes a full refresh to
+-- my_ducklake.gold.events_rich_ml_gold (idempotent, always represents the current state).
+--
+-- Assumes postgres, ducklake, httpfs, and json are already INSTALLed/LOADed by the caller
+-- (see .github/workflows/gold_layer.yml). Credentials go into CREATE SECRET (whose fields
+-- accept getenv()); ATTACH references that secret by name. The workflow parses PG_CONN_STRING
+-- into PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE beforehand.
 
 CREATE OR REPLACE SECRET pg_secret (
     TYPE POSTGRES,
@@ -19,22 +24,19 @@ CREATE OR REPLACE SECRET s3_secret (
     REGION 'us-east-1'
 );
 
--- Source: Postgres (bronze layer, read-only).
-ATTACH '' AS pg_src (TYPE POSTGRES, SECRET pg_secret, READ_ONLY);
-
--- Target: DuckLake (gold layer).
-ATTACH 'ducklake:postgres:' AS lake (
+-- DuckLake catalog: metadata in Postgres, data files in S3.
+ATTACH 'ducklake:postgres:' AS my_ducklake (
     DATA_PATH 's3://ducklake-prod-tutorial/',
     METADATA_SCHEMA 'ducklake_meta',
     METADATA_PARAMETERS MAP {'secret': 'pg_secret'}
 );
 
 -- Create gold schema if it doesn't exist.
-CREATE SCHEMA IF NOT EXISTS lake.gold;
+CREATE SCHEMA IF NOT EXISTS my_ducklake.gold;
 
 -- Full refresh: read bronze layer, flatten JSON, write to gold.
 -- All columns are cast to their target types; NULL is used for missing/unparseable values.
-CREATE OR REPLACE TABLE lake.gold.events_rich_ml_gold AS
+CREATE OR REPLACE TABLE my_ducklake.gold.events_rich_ml_gold AS
 SELECT
     src.id::INT,
     src.user_id::VARCHAR,
@@ -64,4 +66,4 @@ SELECT
     TRY_CAST(json_extract_string(src.user_attributes, '$.country') AS VARCHAR) AS user_attributes_country,
     TRY_CAST(json_extract_string(src.user_attributes, '$.mrr_value') AS DECIMAL(10,2)) AS user_attributes_mrr_value
 
-FROM pg_src.ducklake_prod_ingestion.events_rich_source AS src;
+FROM my_ducklake.ducklake_prod_ingestion.events_rich_source AS src;

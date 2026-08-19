@@ -23,6 +23,11 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v5
 
+      # DuckDB's CREATE SECRET (TYPE POSTGRES) takes discrete HOST/PORT/USER/PASSWORD/
+      # DATABASE fields, not a single DSN — so the connection string is decomposed here,
+      # once, rather than parsed in SQL. Values are masked and exported to GITHUB_ENV so
+      # scripts/gold_layer.sql can pick them up via getenv(); the raw connection string is
+      # never written to disk or echoed.
       - name: Parse Postgres connection string
         env:
           PG_CONN_STRING: ${{ secrets.PG_CONN_STRING }}
@@ -53,8 +58,12 @@ jobs:
                   f.write(f"{key}={value}\n")
           PYEOF
 
+      # ATTACH my_ducklake, CREATE SCHEMA gold if missing, then CREATE OR REPLACE
+      # my_ducklake.gold.events_rich_ml_gold from ducklake_prod_ingestion.events_rich_source.
       - name: Build gold layer
         env:
+          # PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD come from the previous step via
+          # GITHUB_ENV. Consumed inside scripts/gold_layer.sql via getenv().
           AWS_ACCESS_KEY_ID: ${{ secrets.DUCKLAKE_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DUCKLAKE_AWS_SECRET_ACCESS_KEY }}
         run: |
