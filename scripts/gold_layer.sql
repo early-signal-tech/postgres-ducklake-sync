@@ -38,10 +38,10 @@ CREATE SCHEMA IF NOT EXISTS my_ducklake.gold;
 -- All columns are cast to their target types; NULL is used for missing/unparseable values.
 CREATE OR REPLACE TABLE my_ducklake.gold.events_rich_ml_gold AS
 SELECT
-    src.id::INT,
-    src.user_id::VARCHAR,
-    src.event_type::VARCHAR,
-    src.ts::TIMESTAMP,
+    src.id::INT AS id,
+    src.user_id::VARCHAR AS user_id,
+    src.event_type::VARCHAR AS event_type,
+    src.ts::TIMESTAMP AS ts,
 
     -- Flatten payload (JSON)
     TRY_CAST(json_extract_string(src.payload, '$.page') AS VARCHAR) AS payload_page,
